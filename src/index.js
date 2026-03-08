@@ -5,7 +5,7 @@ const puppeteer = require("puppeteer");
 const app = new Hono();
 
 app.get("/", (c) => {
-  return c.json({ status: "ok", usage: "GET /search?q=your+query" });
+  return c.json({ status: "ok", usage: "GET /search?q=your+query&limit=5" });
 });
 
 app.get("/search", async (c) => {
@@ -13,6 +13,8 @@ app.get("/search", async (c) => {
   if (!query) {
     return c.json({ error: "Missing query parameter 'q'" }, 400);
   }
+
+  const limit = Math.min(Math.max(parseInt(c.req.query("limit")) || 5, 1), 20);
 
   let browser;
   try {
@@ -40,11 +42,11 @@ app.get("/search", async (c) => {
     );
 
     // Extract top 5 search result links and snippets
-    const searchResults = await page.evaluate(() => {
+    const searchResults = await page.evaluate((maxResults) => {
       const results = [];
       const items = document.querySelectorAll(".result");
       for (const item of items) {
-        if (results.length >= 5) break;
+        if (results.length >= maxResults) break;
         const anchor = item.querySelector("a.result__a");
         const snippetEl = item.querySelector(".result__snippet");
         if (anchor) {
@@ -60,7 +62,7 @@ app.get("/search", async (c) => {
         }
       }
       return results;
-    });
+    }, limit);
 
     // Resolve DuckDuckGo redirect URLs
     for (const result of searchResults) {

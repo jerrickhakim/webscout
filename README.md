@@ -1,14 +1,14 @@
 # WebScout
 
-A lightweight search API that performs web searches via Puppeteer, fetches the top 5 results, and returns their page content. Built with [Hono](https://hono.dev) and ready to deploy to [Fly.io](https://fly.io).
+A lightweight search API that performs web searches via Puppeteer, fetches the top results, and returns their page content. Built with [Hono](https://hono.dev) and ready to deploy to [Fly.io](https://fly.io).
 
 > This project was generated and tested by AI (Claude).
 
 ## How It Works
 
-1. Receives a search query via `GET /search?q=your+query`
+1. Receives a search query via `GET /search?q=your+query&limit=5`
 2. Launches a headless browser with Puppeteer
-3. Searches DuckDuckGo and extracts the top 5 results
+3. Searches DuckDuckGo and extracts the top results (configurable via `limit`, default 5, max 20)
 4. Visits each result page and extracts the text content (up to 5000 characters)
 5. Returns everything as structured JSON
 
@@ -18,9 +18,16 @@ A lightweight search API that performs web searches via Puppeteer, fetches the t
 
 Health check. Returns status and usage info.
 
-### `GET /search?q=your+query`
+### `GET /search?q=your+query&limit=5`
 
-Returns the top 5 search results with page content.
+Returns search results with page content.
+
+**Parameters:**
+
+| Parameter | Required | Default | Description |
+|-----------|----------|---------|-------------|
+| `q`       | Yes      | —       | Search query |
+| `limit`   | No       | 5       | Number of results to return (1–20) |
 
 **Response:**
 
