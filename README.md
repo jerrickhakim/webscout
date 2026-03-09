@@ -8,7 +8,7 @@ A lightweight search API that performs web searches via Puppeteer, fetches the t
 
 1. Receives a search query via `GET /search?q=your+query&limit=5&engine=duckduckgo`
 2. Launches a headless browser with Puppeteer
-3. Searches the chosen engine (DuckDuckGo, Google, Bing, or Yahoo) and extracts the top results
+3. Searches the chosen engine (DuckDuckGo, Bing, or Yahoo) and extracts the top results
 4. Visits each result page and extracts the text content (up to 5000 characters)
 5. Returns everything as structured JSON
 
@@ -30,9 +30,7 @@ Returns search results with page content.
 | `limit`   | No       | 5            | Number of results to return (1–20) |
 | `engine`  | No       | `duckduckgo` | Search engine to use |
 
-**Supported engines:** `duckduckgo`, `google`, `bing`, `yahoo`
-
-> **Note:** Google may return 0 results due to CAPTCHA detection of headless browsers. DuckDuckGo and Bing are the most reliable engines.
+**Supported engines:** `duckduckgo`, `bing`, `yahoo`
 
 **Response:**
 

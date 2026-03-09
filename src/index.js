@@ -35,29 +35,6 @@ const ENGINES = {
       }
     },
   },
-  google: {
-    searchUrl: (q) => `https://www.google.com/search?q=${encodeURIComponent(q)}&udm=14`,
-    waitUntil: "networkidle2",
-    extract: (maxResults) => {
-      const results = [];
-      // Try standard selectors first, then fallback patterns
-      const items = document.querySelectorAll("div.g, div[data-hveid] div.tF2Cxc");
-      for (const item of items) {
-        if (results.length >= maxResults) break;
-        const anchor = item.querySelector("a[href^='http']");
-        const titleEl = item.querySelector("h3");
-        const snippetEl = item.querySelector("[data-sncf], .VwiC3b, .IsZvec, span.aCOpRe");
-        if (anchor && titleEl) {
-          results.push({
-            title: titleEl.textContent.trim(),
-            url: anchor.href,
-            snippet: snippetEl ? snippetEl.textContent.trim() : "",
-          });
-        }
-      }
-      return results;
-    },
-  },
   bing: {
     searchUrl: (q) => `https://www.bing.com/search?q=${encodeURIComponent(q)}`,
     waitUntil: "domcontentloaded",
