@@ -25,14 +25,18 @@ const ENGINES = {
     },
     resolveUrls: (results) => {
       for (const result of results) {
-        if (result.url.includes("duckduckgo.com/l/")) {
+        if (result.url.includes("duckduckgo.com")) {
           try {
             const u = new URL(result.url);
             const uddg = u.searchParams.get("uddg");
-            if (uddg) result.url = uddg;
+            if (uddg) {
+              result.url = uddg;
+            }
           } catch {}
         }
       }
+      // Filter out ad results that still point to duckduckgo redirects
+      return results.filter((r) => !r.url.includes("duckduckgo.com/y.js"));
     },
   },
   bing: {
@@ -118,8 +122,14 @@ const app = new Hono();
 app.get("/", (c) => {
   return c.json({
     status: "ok",
-    usage: "GET /search?q=your+query&limit=5&engine=duckduckgo",
+    usage: "GET /search?q=your+query&limit=5&engine=duckduckgo&llms=true",
     engines: SUPPORTED_ENGINES,
+    params: {
+      q: "Search query (required)",
+      limit: "Number of results 1-20 (default: 5)",
+      engine: "Search engine: duckduckgo, bing, yahoo (default: duckduckgo)",
+      llms: "Fetch /llms.txt from each result's domain (default: false)",
+    },
   });
 });
 
@@ -131,6 +141,7 @@ app.get("/search", async (c) => {
 
   const limit = Math.min(Math.max(parseInt(c.req.query("limit")) || 5, 1), 20);
   const engineName = (c.req.query("engine") || "duckduckgo").toLowerCase();
+  const fetchLlms = c.req.query("llms") === "true" || c.req.query("llms") === "1";
   const engine = ENGINES[engineName];
 
   if (!engine) {
@@ -163,9 +174,13 @@ app.get("/search", async (c) => {
 
     const searchResults = await page.evaluate(engine.extract, limit);
 
-    // Resolve redirect URLs if the engine requires it
+    // Resolve redirect URLs and filter out ads if the engine requires it
     if (engine.resolveUrls) {
-      engine.resolveUrls(searchResults);
+      const filtered = engine.resolveUrls(searchResults);
+      if (filtered) {
+        searchResults.length = 0;
+        searchResults.push(...filtered);
+      }
     }
 
     if (searchResults.length === 0) {
@@ -173,18 +188,23 @@ app.get("/search", async (c) => {
       return c.json({ query, engine: engineName, results: [], message: "No results found" });
     }
 
-    // Fetch page content for each result
-    const resultsWithContent = await Promise.all(
-      searchResults.map(async (result) => {
-        try {
-          const contentPage = await browser.newPage();
-          await contentPage.setUserAgent(
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-          );
-          await contentPage.goto(result.url, {
-            waitUntil: "networkidle2",
-            timeout: 15000,
-          });
+    // Fetch page content for each result (sequentially to avoid overwhelming the browser)
+    const resultsWithContent = [];
+    for (const result of searchResults) {
+      // Skip URLs that aren't valid http(s) links
+      if (!result.url.startsWith("http")) {
+        resultsWithContent.push({ ...result, content: "Failed to fetch page content" });
+        continue;
+      }
+      try {
+        const contentPage = await browser.newPage();
+        await contentPage.setUserAgent(
+          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
+        );
+        await contentPage.goto(result.url, {
+          waitUntil: "domcontentloaded",
+          timeout: 30000,
+        });
 
           const pageData = await contentPage.evaluate(() => {
             // Extract favicon
@@ -237,12 +257,46 @@ app.get("/search", async (c) => {
           });
 
           await contentPage.close();
-          return { ...result, favicon: pageData.favicon, content: pageData.content };
-        } catch {
-          return { ...result, content: "Failed to fetch page content" };
+          resultsWithContent.push({ ...result, favicon: pageData.favicon, content: pageData.content });
+        } catch (err) {
+          console.error(`Failed to fetch content for ${result.url}: ${err.message}`);
+          resultsWithContent.push({ ...result, content: "Failed to fetch page content" });
         }
-      })
-    );
+      }
+
+    // Fetch /llms.txt from each result's domain if llms param is set
+    if (fetchLlms) {
+      const seenDomains = new Set();
+      for (const result of resultsWithContent) {
+        try {
+          const origin = new URL(result.url).origin;
+          if (seenDomains.has(origin)) {
+            // Reuse llms_txt from a previous result with the same domain
+            const prev = resultsWithContent.find(
+              (r) => r.llms_txt && new URL(r.url).origin === origin
+            );
+            result.llms_txt = prev ? prev.llms_txt : null;
+            continue;
+          }
+          seenDomains.add(origin);
+          const llmsPage = await browser.newPage();
+          const llmsUrl = `${origin}/llms.txt`;
+          const response = await llmsPage.goto(llmsUrl, {
+            waitUntil: "domcontentloaded",
+            timeout: 10000,
+          });
+          if (response && response.ok()) {
+            const text = await llmsPage.evaluate(() => document.body?.innerText || "");
+            result.llms_txt = text.trim().slice(0, 10000) || null;
+          } else {
+            result.llms_txt = null;
+          }
+          await llmsPage.close();
+        } catch {
+          result.llms_txt = null;
+        }
+      }
+    }
 
     await browser.close();
     return c.json({ query, engine: engineName, results: resultsWithContent });
