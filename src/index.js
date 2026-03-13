@@ -182,26 +182,62 @@ app.get("/search", async (c) => {
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
           );
           await contentPage.goto(result.url, {
-            waitUntil: "domcontentloaded",
-            timeout: 10000,
+            waitUntil: "networkidle2",
+            timeout: 15000,
           });
 
-          const content = await contentPage.evaluate(() => {
-            const remove = document.querySelectorAll(
-              "script, style, nav, footer, header, iframe, noscript, svg, [role='banner'], [role='navigation'], [role='complementary']"
+          const pageData = await contentPage.evaluate(() => {
+            // Extract favicon
+            let favicon = "";
+            const iconLink = document.querySelector(
+              'link[rel="icon"], link[rel="shortcut icon"], link[rel="apple-touch-icon"], link[rel="apple-touch-icon-precomposed"]'
             );
-            remove.forEach((el) => el.remove());
+            if (iconLink) {
+              favicon = iconLink.href;
+            } else {
+              favicon = new URL("/favicon.ico", document.location.origin).href;
+            }
 
-            const body = document.body;
-            if (!body) return "";
-            return body.innerText
-              .replace(/\n{3,}/g, "\n\n")
-              .trim()
-              .slice(0, 5000);
+            // Try to find main content container first (for JS-heavy sites like Apple docs)
+            const mainSelectors = [
+              "article",
+              "main",
+              "[role='main']",
+              ".documentation-content",
+              ".content",
+              "#content",
+              ".main-content",
+              ".article-content",
+              ".post-content",
+              "[data-content]",
+            ];
+            let contentEl = null;
+            for (const sel of mainSelectors) {
+              const el = document.querySelector(sel);
+              if (el && el.innerText.trim().length > 150) {
+                contentEl = el;
+                break;
+              }
+            }
+
+            let content = "";
+            if (contentEl) {
+              content = contentEl.innerText.replace(/\n{3,}/g, "\n\n").trim().slice(0, 5000);
+            } else {
+              // Fallback: remove boilerplate and use body
+              const remove = document.querySelectorAll(
+                "script, style, nav, footer, header, iframe, noscript, svg, [role='banner'], [role='navigation'], [role='complementary']"
+              );
+              remove.forEach((el) => el.remove());
+              const body = document.body;
+              content = body ? body.innerText.replace(/\n{3,}/g, "\n\n").trim().slice(0, 5000) : "";
+            }
+
+            return { content, favicon };
           });
 
           await contentPage.close();
-          return { ...result, content };
+          return { ...result, favicon: pageData.favicon, content: pageData.content };
         } catch {
           return { ...result, content: "Failed to fetch page content" };
         }
